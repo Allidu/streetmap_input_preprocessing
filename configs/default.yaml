@@ -2,6 +2,7 @@ pipeline:
   mode: area  # area is integrated with vegetation-first; building stays original
 
 fetch:
+  skip: false  # true: reuse the fetch output below and do not call OSM or Mapillary
   area:
     center: "42.2747,-83.7435"
     buffer: 0.0015

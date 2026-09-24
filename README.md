@@ -28,6 +28,8 @@ python src/select_best_building_views.py --config configs/default.yaml
 
 Turn that dedup off with `filter.dedup.enabled: false` in the config, or pass `--no-dedup`.
 
+If `data/raw/area_fetch.json` already has the OSM buildings and Mapillary records, set `fetch.skip: true` and run the same command. The pipeline then starts at vegetation filtering and does not need `MAPILLARY_TOKEN`. The file must match `fetch.area.output`. In building mode, `fetch.skip: true` reuses `fetch.building.output` instead.
+
 The first segmentation run downloads the Mask2Former weights. Inference needs a network connection. On CPU it is slow for large areas. `device: -1` is CPU; `0` is the first CUDA GPU.
 
 ## Change the config
@@ -36,7 +38,9 @@ All of these settings are in `configs/default.yaml`.
 
 `pipeline.mode` is `area` or `building`. Area mode searches a box and runs vegetation filtering before geometry. Building mode looks up one OSM building and uses the original building filter, with no vegetation stage.
 
-`fetch.area.center` is `"lat,lon"`. `fetch.area.buffer` is the box half-width in degrees, not meters. `0.0015` is a few city blocks. Larger values pull in more buildings and more photos. `fetch.area.output` is where the raw JSON is saved.
+`fetch.skip` reuses an existing fetch file and does not call OSM or Mapillary. Default `false`.
+
+`fetch.area.center` is `"lat,lon"`. `fetch.area.buffer` is the box half-width in degrees, not meters. `0.0015` is a few city blocks. Larger values pull in more buildings and more photos. `fetch.area.output` is where the raw JSON is saved, and where `fetch.skip` reads it from.
 
 `fetch.building.building_coord` is the point used to find one target building in building mode.
 

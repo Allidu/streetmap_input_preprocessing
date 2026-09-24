@@ -130,6 +130,23 @@ def test_runner_enforces_order_and_paths(monkeypatch, tmp_path):
     assert commands[2][commands[2].index("--accepted") + 1] == config["filter"]["area"]["output"]
 
 
+def test_runner_skips_fetch_when_configured(monkeypatch, tmp_path):
+    config = runner.load_config(ROOT / "configs/default.yaml")
+    config["fetch"]["skip"] = True
+    raw = tmp_path / "area_fetch.json"
+    raw.write_text("{}", encoding="utf-8")
+    config["fetch"]["area"]["output"] = str(raw)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    commands = []
+    monkeypatch.delenv("MAPILLARY_TOKEN", raising=False)
+    monkeypatch.setattr(runner, "run_command", lambda command: commands.append(command))
+    monkeypatch.setattr(runner.sys, "argv", ["run_pipeline.py", "--config", str(config_path)])
+    runner.main()
+    assert [cmd[1] for cmd in commands] == ["src/veg.py", "src/filter_metadata.py"]
+    assert commands[0][commands[0].index("--input") + 1] == str(raw)
+
+
 def test_mapillary_url_image_is_loaded_without_prior_local_download():
     import io
     image_bytes = io.BytesIO()

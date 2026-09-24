@@ -62,22 +62,41 @@ def build_filter_command(config: dict) -> list[str]:
     raise ValueError(f"Unsupported pipeline mode: {mode}")
 
 
+def fetch_output_path(config: dict) -> Path:
+    mode = config["pipeline"]["mode"]
+    if mode == "area":
+        return Path(config["fetch"]["area"]["output"])
+    if mode == "building":
+        return Path(config["fetch"]["building"]["output"])
+    raise ValueError(f"Unsupported pipeline mode: {mode}")
+
+
 def main():
     p = argparse.ArgumentParser(description="OSM + Mapillary image filtering pipeline")
     p.add_argument("--config", default="configs/default.yaml")
     args = p.parse_args()
-    if not os.getenv("MAPILLARY_TOKEN"):
-        raise EnvironmentError("MAPILLARY_TOKEN is not set")
     config = load_config(args.config)
     mode = config["pipeline"]["mode"]
-    if mode == "building":
-        b = config["fetch"]["building"]
-        Path(b["target_building_output"]).parent.mkdir(parents=True, exist_ok=True)
-        run_command([sys.executable, "src/coords_to_osm_building.py", "--coord",
-                     str(b["building_coord"]), "--output", b["target_building_output"]])
-    fetch_cmd = build_fetch_command(config)
-    Path(fetch_cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
-    run_command(fetch_cmd)
+    skip_fetch = bool(config.get("fetch", {}).get("skip", False))
+    if skip_fetch:
+        existing = fetch_output_path(config)
+        if not existing.is_file():
+            raise FileNotFoundError(
+                f"fetch.skip is true but {existing} does not exist. "
+                "Run once with fetch.skip false, or point fetch output at an existing file."
+            )
+        print(f"Skipping OSM and Mapillary fetch. Using {existing}", flush=True)
+    else:
+        if not os.getenv("MAPILLARY_TOKEN"):
+            raise EnvironmentError("MAPILLARY_TOKEN is not set")
+        if mode == "building":
+            b = config["fetch"]["building"]
+            Path(b["target_building_output"]).parent.mkdir(parents=True, exist_ok=True)
+            run_command([sys.executable, "src/coords_to_osm_building.py", "--coord",
+                         str(b["building_coord"]), "--output", b["target_building_output"]])
+        fetch_cmd = build_fetch_command(config)
+        Path(fetch_cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+        run_command(fetch_cmd)
     if mode == "area":
         run_command(build_vegetation_command(config))  # ALWAYS before geometric filter
     run_command(build_filter_command(config))
