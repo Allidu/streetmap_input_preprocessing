@@ -1,0 +1,35 @@
+pipeline:
+  mode: area  # area is integrated with vegetation-first; building stays original
+
+fetch:
+  area:
+    center: "42.2747,-83.7435"
+    buffer: 0.0015
+    output: "data/raw/area_fetch.json"
+  building:
+    building_coord: "42.274933,-83.743182"
+    target_building_output: "data/raw/target_building.json"
+    output: "data/raw/building_fetch.json"
+
+filter:
+  vegetation:
+    output: "data/intermediate/area_vegetation_accepted.json"
+    rejected: "data/intermediate/area_vegetation_rejected.json"
+    csv: "data/outputs/area_vegetation_scores.csv"
+    contact_sheet: "data/outputs/area_vegetation_contact_sheet.jpg"
+    model_id: "facebook/mask2former-swin-large-cityscapes-panoptic"
+    device: -1  # CPU, use 0 for first CUDA GPU if available
+    max_edge: 1024
+    max_sheet_images: 80
+    min_building_frac: 0.08
+    max_building_frac: 0.93
+    max_center_vegetation_frac: 0.55  # vegetation occupancy proxy, not literal occlusion
+  area:
+    output: "data/filtered/area_filtered.json"
+    rejected: "data/filtered/area_geometric_rejected.json"
+  dedup:
+    enabled: true          # set false to keep every geometrically accepted frame
+    distance_m: 8          # frames closer than this can be the same cluster
+    heading_deg: 20        # and only if headings also differ by at most this many degrees
+  building:
+    output: "data/filtered/building_filtered.json"  # original script uses its default path

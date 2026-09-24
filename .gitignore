@@ -1,0 +1,26 @@
+# Python environment and caches
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Generated pipeline data
+data/raw/
+data/intermediate/
+data/filtered/
+data/outputs/
+
+# Model weights
+*.pth
+*.pth.tar
+*.pt
+*.safetensors

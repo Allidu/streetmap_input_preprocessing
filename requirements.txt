@@ -1,0 +1,9 @@
+requests
+pyyaml
+numpy
+pillow
+opencv-python
+torch
+transformers
+scipy
+shapely
