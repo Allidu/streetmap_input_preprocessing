@@ -1,21 +1,81 @@
-# Area-mode vegetation-first Mapillary pipeline
+# Mapillary image filtering
 
-The supplied project keeps the existing code flow: `python run_pipeline.py --config configs/default.yaml`. Run from this directory after setting `MAPILLARY_TOKEN` in your environment. `configs/default.yaml` now defaults to `mode: area`. Your original `get_mapillary.py`, `coords_to_osm_building.py`, and `filter_target_building.py` are included without changes to their algorithms. **Only area mode has a vegetation-first integration; building mode retains its original filtering flow.** Places365 is not run automatically.
+Select street-level photos of buildings. Area mode fetches a neighborhood, drops photos with too little building or too much vegetation, then keeps photos whose camera points at a nearby OSM building.
 
-Install dependencies with `pip install -r requirements.txt`. The first real segmentation run downloads the Mask2Former model weights; processing all Mapillary photos on CPU can be slow and requires network connectivity. `get_mapillary.py` uses Overpass and Mapillary endpoints, so set `MAPILLARY_TOKEN` before running. Never put the token in the YAML file or share it.
+## Use the pipeline
 
-## Area-mode stages and outputs
+From this directory:
 
-1. `src/get_mapillary.py`: fetches OSM buildings and Mapillary image records (metadata and URL) into `data/raw/area_fetch.json`; this stage does **not** download and retain an image directory.
-2. `src/veg.py`: retrieves pixels from `thumb_original_url` (or from a record's existing `local_path` / `image_path`, if available), performs segmentation, and writes `data/intermediate/area_vegetation_accepted.json`. This file preserves the original fetched JSON object, including `osm_raw`, and changes only its `mapillary` list to the visually accepted records. Every record retains its original Mapillary fields plus `visual_filter` metrics. Separate rejected records and a per-image CSV are also written; the contact sheet includes up to 80 successfully evaluated images.
-3. `src/filter_metadata.py`: reads only those visually accepted images, computes the original per-image geometric scores against nearby OSM footprints, and writes `data/filtered/area_filtered.json` as a **list** of accepted image records, plus `data/filtered/area_geometric_rejected.json`. Each output record retains its `visual_filter` metrics and other Mapillary metadata.
+```bash
+pip install -r requirements.txt
+export MAPILLARY_TOKEN=your_token
+python run_pipeline.py --config configs/default.yaml
+```
 
-You can inspect the final accepted list with the existing visualization script, e.g. `python src/visualize_filter.py --input data/filtered/area_filtered.json --output data/outputs/area_gallery.html`. The separate `data/intermediate/area_vegetation_rejected.json` and `data/filtered/area_geometric_rejected.json` tell you exactly which stage removed each photo.
+Do not put the token in the YAML file.
 
-## Important interpretation and limits
+That command runs three stages, in order:
 
-The original `vegetation_mask & building_mask` calculation **cannot measure occlusion** with mutually exclusive panoptic labels: it is normally zero. Instead, `veg.py` reports (a) overall building fraction, (b) overall vegetation fraction, and (c) vegetation fraction in the central 70% × 70% crop. By default it rejects building coverage below 8%, building coverage above 93%, or center vegetation occupancy above 55%. The last threshold is a **conservative image-level vegetation dominance heuristic**, not a percentage of a façade physically occluded by trees. Tune thresholds after visually checking your sample region; images showing unobstructed but small buildings can be rejected by the 8% rule.
+1. Fetch OSM buildings and Mapillary image records.
+2. Vegetation filter. Rejected photos do not continue.
+3. Geometric filter, on the vegetation-accepted photos only.
 
-Segmentation/download errors are marked `image_or_segmentation_error` and are not passed to geometric filtering. If every input image fails evaluation, the stage fails rather than treating the run as successful. The contact sheet is intentionally capped to avoid an enormous image. The geometric filter retains the preexisting distance-and-heading scoring but adds a conservative 60° forward-view gate: previously, the proximity bonus could admit a nearby building behind a camera. This gate is only a rough horizontal field-of-view estimate, not a true visibility check. It does not estimate inter-image feature overlap, true façade visibility, or reconstructability and does **not** yet implement redundancy removal or a fixed final photo count.
+Optional fourth step, after the pipeline finishes. This ranks the geometric accepts and can drop near-duplicate frames:
 
-For a smaller test area, reduce `fetch.area.buffer` in YAML and inspect the first-stage contact sheet and CSV before running full-scale inference.
+```bash
+python src/select_best_building_views.py --config configs/default.yaml
+```
+
+Turn that dedup off with `filter.dedup.enabled: false` in the config, or pass `--no-dedup`.
+
+The first segmentation run downloads the Mask2Former weights. Inference needs a network connection. On CPU it is slow for large areas. `device: -1` is CPU; `0` is the first CUDA GPU.
+
+## Change the config
+
+All of these settings are in `configs/default.yaml`.
+
+`pipeline.mode` is `area` or `building`. Area mode searches a box and runs vegetation filtering before geometry. Building mode looks up one OSM building and uses the original building filter, with no vegetation stage.
+
+`fetch.area.center` is `"lat,lon"`. `fetch.area.buffer` is the box half-width in degrees, not meters. `0.0015` is a few city blocks. Larger values pull in more buildings and more photos. `fetch.area.output` is where the raw JSON is saved.
+
+`fetch.building.building_coord` is the point used to find one target building in building mode.
+
+`filter.vegetation.min_building_frac` rejects a photo when too little of the frame is building. Default `0.08`.
+
+`filter.vegetation.max_building_frac` rejects a photo that is almost entirely building. Default `0.93`.
+
+`filter.vegetation.max_center_vegetation_frac` rejects a photo when vegetation fills the center 70% of the frame. Default `0.55`. This is vegetation occupancy in that crop, not a measurement of how much façade is hidden by trees.
+
+`filter.vegetation.model_id` is the segmentation model. `device` chooses CPU or GPU. `max_edge` is the longest image side sent to the model. `max_sheet_images` caps the contact sheet.
+
+`filter.area.output` and `filter.area.rejected` are the geometric accept and reject files. The score cutoff, 60° forward-view limit, and distance weights are constants in `src/filter_metadata.py`, not in the YAML.
+
+`filter.dedup` is used only by `src/select_best_building_views.py`. `enabled` turns near-duplicate removal on or off. Two photos are duplicates when they are within `distance_m` meters and `heading_deg` degrees. Each cluster keeps the highest-scoring photo. There is no top-N cutoff. The per-building cap of 5 is a constant in that script.
+
+## What each file does
+
+`run_pipeline.py` reads the config and runs fetch, then vegetation, then geometry.
+
+`src/get_mapillary.py` downloads OSM buildings and Mapillary metadata, including image URLs. It does not save an image folder.
+
+`src/veg.py` downloads each photo, segments it, and writes accepted records, rejected records, a CSV, and a contact sheet. Building mask is green. Vegetation mask is orange.
+
+`src/filter_metadata.py` scores each vegetation-accepted photo against nearby OSM footprints using camera position and compass heading.
+
+`src/select_best_building_views.py` ranks geometric accepts by building visibility and low vegetation, then optionally removes near-duplicates.
+
+`src/coords_to_osm_building.py` turns one coordinate into a target building. Used by building mode.
+
+`src/filter_target_building.py` is the original single-building filter. Building mode only.
+
+`src/visualize_filter.py` writes an HTML gallery for a filtered image list.
+
+`src/visualize_eval.py` builds the Thompson Street evaluation gallery, map, and comparison sheet from a finished run.
+
+`src/visualize2.py` writes an HTML gallery for a raw fetch file.
+
+`src/organize_directions.py` groups images by compass direction.
+
+`src/places.py` is a Places365 scene classifier. The pipeline does not run it.
+
+`tests/test_area_pipeline.py` checks that vegetation filtering runs before geometry and that metadata is kept. It does not call Mapillary or load the model.
